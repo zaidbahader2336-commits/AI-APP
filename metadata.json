@@ -1,0 +1,6 @@
+{
+  "name": "BuildCraft",
+  "description": "A professional, pixel-perfect, dark-themed AI-powered app builder platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
