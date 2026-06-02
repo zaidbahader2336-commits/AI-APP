@@ -81,7 +81,7 @@ app.post("/api/generate", async (req, res) => {
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.0-flash",
       contents: `Generate a gorgeous application setup JSON for: "${prompt}"`,
       config: {
         systemInstruction: sysInstruction,
@@ -89,7 +89,20 @@ app.post("/api/generate", async (req, res) => {
       }
     });
 
-    const parsedJson = JSON.parse(response.text.trim());
+    const rawText = response.text || "";
+    console.log("Raw Gemini Generate Response:", rawText);
+
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(rawText.trim());
+    } catch (parseError: any) {
+      console.error("Failed to parse Gemini Generate JSON:", parseError);
+      return res.status(500).json({
+        error: "Failed to parse system generation response as JSON.",
+        details: parseError.message || "Invalid JSON formatting from Gemini."
+      });
+    }
+
     return res.json(parsedJson);
 
   } catch (error: any) {
@@ -112,7 +125,7 @@ app.post("/api/chat-message", async (req, res) => {
     const ai = getGeminiClient();
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.0-flash",
       contents: `
       Current Application Workspace Config State (JSON):
       ${JSON.stringify(currentState, null, 2)}
@@ -141,7 +154,20 @@ app.post("/api/chat-message", async (req, res) => {
       }
     });
 
-    const parsedJson = JSON.parse(response.text.trim());
+    const rawText = response.text || "";
+    console.log("Raw Gemini Chat Response:", rawText);
+
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(rawText.trim());
+    } catch (parseError: any) {
+      console.error("Failed to parse Gemini Chat JSON:", parseError);
+      return res.status(500).json({
+        error: "Failed to parse system interactive responses as JSON.",
+        details: parseError.message || "Invalid JSON formatting from Gemini."
+      });
+    }
+
     return res.json(parsedJson);
 
   } catch (error: any) {

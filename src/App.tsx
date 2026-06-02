@@ -57,8 +57,7 @@ import LoginModal from './components/LoginModal';
 import ShowcaseSection from './components/ShowcaseSection';
 import MyProjectsDrawer, { UserProject } from './components/MyProjectsDrawer';
 
-// @ts-ignore
-import bgImage from './assets/images/cave_moon_background_1780298528427.png';
+const bgImage = "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?auto=format&fit=crop&w=1500&q=80";
 import { auth } from './lib/firebase';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { 
@@ -87,6 +86,7 @@ export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isPromptFocused, setIsPromptFocused] = useState(false);
+  const [bypassToast, setBypassToast] = useState('');
 
   // Touch swipe gesture states
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -265,8 +265,15 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: prompt })
     })
-    .then((res) => {
-       if (!res.ok) throw new Error("Compiler fetch unsuccessful.");
+    .then(async (res) => {
+       if (!res.ok) {
+         let errorText = "";
+         try {
+           const errData = await res.json();
+           errorText = errData.error || errData.details || "";
+         } catch (_) {}
+         throw new Error(errorText || "Compiler fetch unsuccessful with status: " + res.status);
+       }
        return res.json();
     })
     .then((data) => {
@@ -283,13 +290,43 @@ export default function App() {
          securityChecks: data.securityChecks || [],
          activeCode: data.activeCode || ""
        });
+
+       // Create and persist project portfolio card
+       const rawTitle = data.title || (prompt.length > 30 ? prompt.substring(0, 27) + "..." : prompt);
+       const createdProj: UserProject = {
+         id: "user-app-" + Date.now(),
+         title: rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1),
+         prompt: prompt,
+         createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+         status: 'Ready',
+         techStack: data.techStack || ['React v19', 'Tailwind v4'],
+         viewsCount: Math.floor(Math.random() * 8) + 1
+       };
+
+       setProjects((prev) => {
+         const updated = [createdProj, ...prev];
+         localStorage.setItem('erere_studio_blueprints', JSON.stringify(updated));
+         return updated;
+       });
+
+       if (auth.currentUser) {
+         createUserProjectInDb(createdProj, auth.currentUser.uid).catch(err => {
+           console.error("Firestore persistence failed:", err);
+         });
+       }
+
+       // Auto open workspace automatically after 1 second so the final compilation stats are briefly visible
+       setTimeout(() => {
+         setIsGenerating(false);
+         setShowWorkspace(true);
+         setActiveTab('dashboard');
+       }, 1000);
     })
     .catch((err) => {
-       console.warn("Direct compiler bypassed, using local high-fidelity sandbox context.", err);
-       setTimeout(() => {
-         clearInterval(interval);
-         setGenerationStep(3);
-       }, 1200);
+       console.error("Direct compiler bypassed, falling back to offline high-fidelity demo:", err);
+       alert("Generation Notice: " + err.message + "\n\nPress Bypass to run the interactive sandbox visualizer in Offline Demo Mode.");
+       clearInterval(interval);
+       setGenerationStep(3);
     });
   };
 
@@ -372,8 +409,33 @@ export default function App() {
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      className="min-h-screen bg-[#070e0a] text-zinc-100 font-sans selection:bg-emerald-500/30 selection:text-emerald-300 w-full overflow-x-hidden flex"
+      className="min-h-screen bg-[#070e0a] text-zinc-100 font-sans selection:bg-emerald-500/30 selection:text-emerald-300 w-full overflow-x-hidden flex relative"
     >
+      {/* Floating Warning Toast indicating Demo Mode status */}
+      <AnimatePresence>
+        {bypassToast && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-6 right-6 z-50 bg-zinc-950/95 border border-amber-500/40 text-amber-300 px-5 py-4 rounded-2xl shadow-[0_10px_40px_rgba(245,158,11,0.15)] backdrop-blur-xl flex items-center justify-between gap-4 max-w-sm"
+          >
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+              <span className="text-[11.5px] font-semibold leading-relaxed font-sans">{bypassToast}</span>
+            </div>
+            <button 
+              onClick={() => setBypassToast('')} 
+              className="text-amber-500/65 hover:text-amber-300 hover:bg-white/5 active:scale-90 transition font-bold px-2 py-0.5 rounded text-xs cursor-pointer shrink-0"
+            >
+              ×
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
       {/* Dynamic welcome/workspace layout toggling */}
       {!showWorkspace ? (
@@ -462,7 +524,45 @@ export default function App() {
 
                   <div className="mt-6 flex justify-end space-x-3 text-xs font-medium">
                     <button
-                      onClick={() => setIsGenerating(false)}
+                      onClick={() => {
+                        setIsGenerating(false);
+                        setBypassToast("Using demo mode — add GEMINI_API_KEY for live generation");
+                        setTimeout(() => setBypassToast(''), 8000);
+
+                        // Proceed to open workspace under the sandbox preset
+                        const rawTitle = prompt.length > 30 ? prompt.substring(0, 27) + "..." : prompt;
+                        const stackOptions: string[] = ['React v19', 'Tailwind v4'];
+                        const lp = prompt.toLowerCase();
+                        if (lp.includes('dash') || lp.includes('chart') || lp.includes('analyt')) {
+                          stackOptions.push('Recharts');
+                        }
+                        if (lp.includes('e-com') || lp.includes('store') || lp.includes('pay') || lp.includes('stripe')) {
+                          stackOptions.push('Stripe SDK');
+                        }
+                        const createdProj: UserProject = {
+                          id: "user-app-" + Date.now(),
+                          title: rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1),
+                          prompt: prompt,
+                          createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                          status: 'Ready',
+                          techStack: stackOptions,
+                          viewsCount: 3
+                        };
+                        setProjects((prev) => {
+                          const updated = [createdProj, ...prev];
+                          localStorage.setItem('erere_studio_blueprints', JSON.stringify(updated));
+                          return updated;
+                        });
+
+                        if (auth.currentUser) {
+                          createUserProjectInDb(createdProj, auth.currentUser.uid).catch(err => {
+                            console.error("Firestore persistence failed:", err);
+                          });
+                        }
+
+                        setShowWorkspace(true);
+                        setActiveTab('dashboard');
+                      }}
                       className="px-4 py-2 rounded-lg border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white transition cursor-pointer"
                     >
                       Bypass

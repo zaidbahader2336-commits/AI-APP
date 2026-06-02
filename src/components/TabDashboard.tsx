@@ -71,9 +71,19 @@ export default function TabDashboard({ dynamicComponents, onAddComponent, onRemo
         currentState: activeApp
       })
     })
-    .then((res) => {
+    .then(async (res) => {
       if (!res.ok) {
-        throw new Error("Failed to communicate with Express compiler service.");
+        let errMessage = "";
+        let errResponseText = "";
+        try {
+          const errData = await res.json();
+          errMessage = errData.error || errData.details || "";
+          errResponseText = errData.aiResponseMessage || "";
+        } catch (_) {}
+        
+        const customError = new Error(errMessage || "Failed to communicate with Express compiler service.");
+        (customError as any).aiResponseMessage = errResponseText;
+        throw customError;
       }
       return res.json();
     })
@@ -99,40 +109,41 @@ export default function TabDashboard({ dynamicComponents, onAddComponent, onRemo
       // Cascade updates back up to root state
       if (activeApp) {
         updateActiveApp({
-          title: data.updatedTitle || activeApp.title,
+          title: data.updatedTitle !== undefined ? data.updatedTitle : activeApp.title,
           techStack: activeApp.techStack,
-          previewHeaderTitle: data.updatedWidgets ? (data.updatedWidgets[0]?.title || activeApp.previewHeaderTitle) : activeApp.previewHeaderTitle,
-          previewWidgets: data.updatedWidgets || activeApp.previewWidgets,
-          sampleUsers: data.updatedUsers || activeApp.sampleUsers,
-          sampleProducts: data.updatedProducts || activeApp.sampleProducts,
-          sampleOrders: data.updatedOrders || activeApp.sampleOrders,
-          securityChecks: data.updatedSecurityChecks || activeApp.securityChecks,
-          activeCode: data.updatedCode || activeApp.activeCode
+          previewHeaderTitle: data.updatedWidgets && data.updatedWidgets[0] ? (data.updatedWidgets[0].title || activeApp.previewHeaderTitle) : activeApp.previewHeaderTitle,
+          previewWidgets: data.updatedWidgets !== undefined ? data.updatedWidgets : activeApp.previewWidgets,
+          sampleUsers: data.updatedUsers !== undefined ? data.updatedUsers : activeApp.sampleUsers,
+          sampleProducts: data.updatedProducts !== undefined ? data.updatedProducts : activeApp.sampleProducts,
+          sampleOrders: data.updatedOrders !== undefined ? data.updatedOrders : activeApp.sampleOrders,
+          securityChecks: data.updatedSecurityChecks !== undefined ? data.updatedSecurityChecks : activeApp.securityChecks,
+          activeCode: data.updatedCode !== undefined ? data.updatedCode : activeApp.activeCode
         });
       }
     })
-    .catch((error) => {
+    .catch((error: any) => {
       setIsTyping(false);
-      // Beautiful local sandbox fallback fallback
-      console.warn("Express Gemini endpoint unavailable, fallback activated.", error);
-      
-      const isButton = userText.toLowerCase().includes('button') || userText.toLowerCase().includes('click') || userText.toLowerCase().includes('action');
-      const isInput = userText.toLowerCase().includes('input') || userText.toLowerCase().includes('form');
-      const isChart = userText.toLowerCase().includes('chart') || userText.toLowerCase().includes('data') || userText.toLowerCase().includes('stats');
+      console.warn("Express Gemini endpoint integration issue:", error);
+
+      // On error, show the aiResponseMessage if available, otherwise fallback message / error
+      const aiResponseMessage = error.aiResponseMessage || error.message || "Failed to communicate with Express compiler service. Please verify your GEMINI_API_KEY.";
 
       const fallbackMsg: EnhancedChatMessage = {
-        id: `ai-fallback-${Date.now()}`,
+        id: `ai-error-${Date.now()}`,
         sender: 'ai',
-        title: "Local Sandbox Fortifier...",
+        title: "Compiler Synchronization Issue",
         checklist: [
-          { text: "Activate local static simulation", checked: true },
-          { text: "Bypass missing credentials block", checked: true }
+          { text: "Status: Sandbox Fallback Enabled", checked: true }
         ],
-        text: `Urdu/Hinglish Response: API key not set but main offline compiler set kar raha hoon: [Task: ${userText}].\n\n- Main ne local custom UI elements map kar diye hain. Right preview widget panel mein dynamic elements inspect karein!`,
+        text: aiResponseMessage,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
 
       setMessages((prev) => [...prev, fallbackMsg]);
+
+      const isButton = userText.toLowerCase().includes('button') || userText.toLowerCase().includes('click') || userText.toLowerCase().includes('action');
+      const isInput = userText.toLowerCase().includes('input') || userText.toLowerCase().includes('form');
+      const isChart = userText.toLowerCase().includes('chart') || userText.toLowerCase().includes('data') || userText.toLowerCase().includes('stats');
 
       if (isButton) {
         onAddComponent('button', 'Tactical Primary Button');
